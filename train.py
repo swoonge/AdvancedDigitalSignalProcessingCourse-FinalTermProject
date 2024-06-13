@@ -44,7 +44,7 @@ print('total images: {}; total batches: {}'.format(
     len(train_set), len(train_loader)))
 
 ## load networks on GPU
-from model import network
+from modules import network
 
 if torch.cuda.is_available():
     device = torch.device('cuda')
@@ -118,11 +118,8 @@ for epoch in range(last_epoch + 1, args.max_epochs + 1):
                        Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)))
 
         patches = Variable(data.to(device))
-
         solver.zero_grad()
-
         losses = []
-
         res = patches - 0.5
 
         bp_t0 = time.time()
@@ -140,21 +137,13 @@ for epoch in range(last_epoch + 1, args.max_epochs + 1):
             losses.append(res.abs().mean())
 
         bp_t1 = time.time()
-
         loss = sum(losses) / args.iterations
         loss.backward()
-
         solver.step()
-
         batch_t1 = time.time()
 
-        print(
-            '[TRAIN] Epoch[{}]({}/{}); Loss: {:.6f}; Backpropagation: {:.4f} sec; Batch: {:.4f} sec'.
-            format(epoch, batch + 1,
-                   len(train_loader), loss.data[0], bp_t1 - bp_t0, batch_t1 -
-                   batch_t0))
-        print(('{:.4f} ' * args.iterations +
-               '\n').format(* [l.data[0] for l in losses]))
+        print('[TRAIN] Epoch[{}]({}/{}); Loss: {:.6f}; Backpropagation: {:.4f} sec; Batch: {:.4f} sec'.format(epoch, batch + 1, len(train_loader), loss.item(), bp_t1 - bp_t0, batch_t1 - batch_t0))
+        print(('{:.4f} ' * args.iterations + '\n').format(* [l.item() for l in losses]))
 
         index = (epoch - 1) * len(train_loader) + batch
 

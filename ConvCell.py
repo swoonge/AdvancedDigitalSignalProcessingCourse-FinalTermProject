@@ -4,7 +4,6 @@ import torch
 from torch.autograd import Variable
 from torch.nn.modules.utils import _pair
 
-
 class ConvRNNCellBase(nn.Module):
     def __repr__(self):
         """

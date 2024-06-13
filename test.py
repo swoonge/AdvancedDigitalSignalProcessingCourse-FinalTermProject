@@ -15,4 +15,4 @@ else:
     device = torch.device("cpu")
     print("MPS is not available, running on CPU")
 
-from model import network
+from modules import network

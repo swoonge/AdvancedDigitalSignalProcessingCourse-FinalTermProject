@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model import ConvLSTMCell
-from model import Sign
+from .ConvCell import ConvLSTMCell
+from .sign import Sign
 
 class EncoderCell(nn.Module):
     def __init__(self):
