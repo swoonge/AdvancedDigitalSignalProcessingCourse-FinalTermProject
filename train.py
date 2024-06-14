@@ -21,7 +21,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--batch-size', '-N', type=int, default=32, help='batch size')
 parser.add_argument('--train', '-f', required=True, type=str, help='folder of training images')
 parser.add_argument('--dataset', type=str, default='tiny-imagenet-200', help='dataset')
-parser.add_argument('--max-epochs', '-e', type=int, default=1000, help='max epochs')
+parser.add_argument('--max-epochs', '-e', type=int, default=200, help='max epochs')
 parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
 parser.add_argument('--random_seed', type=int, default=0, help='random seed')
 # parser.add_argument('--cudas', '-g', action='store_true', help='enables cuda')
@@ -211,7 +211,8 @@ if __name__ == '__main__':
         #     save(epoch, True)
         # else:
         #     save(epoch, False)
-        save(epoch, False)
+        if epoch % 10 == 0:
+            save(epoch, False)
 
         # ================================================================== #
         #                        Tensorboard Logging                         #
