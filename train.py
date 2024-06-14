@@ -21,7 +21,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--batch-size', '-N', type=int, default=32, help='batch size')
 parser.add_argument('--train', '-f', required=True, type=str, help='folder of training images')
 parser.add_argument('--dataset', type=str, default='tiny-imagenet-200', help='dataset')
-parser.add_argument('--max-epochs', '-e', type=int, default=200, help='max epochs')
+parser.add_argument('--max-epochs', '-e', type=int, default=1000, help='max epochs')
 parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
 parser.add_argument('--random_seed', type=int, default=0, help='random seed')
 # parser.add_argument('--cudas', '-g', action='store_true', help='enables cuda')
@@ -45,15 +45,15 @@ if __name__ == '__main__':
     today = datetime.datetime.now().strftime("%m_%d_%H_%M")
     model_name = 'batch{}-lr{}-{}-{}' .format(args.batch_size, args.lr, args.loss_method, today)
 
-    log_path = Path('./logs/{}'.format(args.dataset))
+    log_path = Path('./logs/{}/{}'.format(args.dataset, model_name))
     log_path.mkdir(exist_ok=True, parents=True)
     logger = SummaryWriter(log_path)
 
     model_out_path = Path('./checkpoint/{}/{}'.format(args.dataset, model_name))
     model_out_path.mkdir(exist_ok=True, parents=True)
 
-    print("\n", "="*150, "\n =\tTrain network with || bath size: ", args.batch_size, " || lr: ", args.lr, " || loss method: ", args.loss_method, " || random seed: ", args.random_seed, " || iterations: ", args.iterations,
-    "\n =\tmodel_out_path: ", model_out_path, "\n =\tlog_path: ",log_path, "\n", "="*150, )
+    print("\n", "="*120, "\n ||\tTrain network with | bath size: ", args.batch_size, " | lr: ", args.lr, " | loss method: ", args.loss_method, " | random seed: ", args.random_seed, " | iterations: ", args.iterations,
+    "\n ||\tmodel_out_path: ", model_out_path, "\n ||\tlog_path: ",log_path, "\n", "="*120, )
 
     def resume(epoch=None, best=True):
         s = '_best' if best else ''
@@ -78,7 +78,7 @@ if __name__ == '__main__':
     # load training set
     train_set = dataset.ImageFolder(root=args.train, transform=train_transform)
     train_loader = data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True, num_workers=1)
-    print(' =\ttotal images: {}; total batches: {}\n'.format(len(train_set), len(train_loader)), "="*150)
+    print(' ||\ttotal images: {}; total batches: {}\n'.format(len(train_set), len(train_loader)), "="*120)
 
     ## load networks on GPU
     from modules import network
@@ -88,31 +88,32 @@ if __name__ == '__main__':
         device = torch.device('mps')
     else:
         device = torch.device('cpu')
-    print(' =\tdevice: {}\n'.format(device), "="*150, "\n")
+    print(' ||\tdevice: {}\n'.format(device), "="*120, "\n")
     encoder = network.EncoderCell().to(device)
     binarizer = network.Binarizer().to(device)
     decoder = network.DecoderCell().to(device)
 
     # set up optimizer and scheduler
     optimizer = optim.Adam([ {'params': encoder.parameters()}, {'params': binarizer.parameters()}, {'params': decoder.parameters()} ], lr=args.lr)
-    scheduler = LS.MultiStepLR(optimizer, milestones=[3, 10, 20, 50, 100], gamma=0.5)
+    lr_scheduler = LS.MultiStepLR(optimizer, milestones=[3, 10, 20, 50, 100], gamma=0.5)
 
     # if checkpoint is provided, resume from the checkpoint
     last_epoch = 0
     if args.checkpoint:
         resume(args.checkpoint)
         last_epoch = args.checkpoint
-        scheduler.last_epoch = last_epoch - 1
+        lr_scheduler.last_epoch = last_epoch - 1
 
     ## training
     total_t = 0
-    model_total_t = 0
-    loss_total_t = 0
-    bp_total_t = 0
+    model_t = 0
+    loss_t = 0
+    bp_t = 0
+
+    epoch_loss = 0
     best_eval_loss = 1e9
     for epoch in range(last_epoch + 1, args.max_epochs + 1):
         encoder.train(), binarizer.train(), decoder.train()
-        epoch_loss = []
 
         train_loader = tqdm(train_loader)
         for batch, data in enumerate(train_loader):
@@ -136,7 +137,7 @@ if __name__ == '__main__':
             decoder_h_4 = (Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)),
                         Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)))
             model_t1 = time.time()
-            model_total_t += model_t1 - model_t0
+            model_t += model_t1 - model_t0
 
             patches = Variable(data.to(device))
             optimizer.zero_grad()
@@ -156,21 +157,25 @@ if __name__ == '__main__':
                 res = res - output
                 losses.append(res.abs().mean())
             loss_t1 = time.time()
-            loss_total_t += loss_t1 - loss_t0
+            loss_t += loss_t1 - loss_t0
             loss = sum(losses) / args.iterations
-            epoch_loss.append(loss.item())
+            epoch_loss += loss.item()
 
             bp_t0 = time.time()
             loss.backward()
             optimizer.step()
             bp_t1 = time.time()
-            bp_total_t += bp_t1 - bp_t0
+            bp_t += bp_t1 - bp_t0
             batch_t1 = time.time()
             total_t += batch_t1 - batch_t0
 
-        scheduler.step()
-        mean_train_loss = epoch_loss.mean()
-        print('[TRAIN] Epoch[{}]; Loss: {:.6f}; Model inference: {:.5f} sec; Loss: {:.5f} sec; Backpropagation: {:.5f} sec; Batch: {:.5f} sec'.format(epoch, mean_train_loss, model_total_t/len(train_set), loss_total_t/len(train_set), bp_total_t/len(train_set), total_t/len(train_loader)))
+        lr_scheduler.step()
+        epoch_loss /= len(train_loader)
+        model_t /= len(train_set)
+        loss_t /= len(train_set)
+        bp_t /= len(train_set)
+        total_t_per_batch = total_t/len(train_loader)
+        print('[TRAIN] Epoch[{}] Loss: {:.6f} | Model inference: {:.5f} sec | Loss: {:.5f} sec | Backpropagation: {:.5f} sec'.format(epoch, epoch_loss, model_t, loss_t, bp_t))
         
         # evaluate model
         #
@@ -211,6 +216,6 @@ if __name__ == '__main__':
         #                        Tensorboard Logging                         #
         # ================================================================== #
         # logger.add_scalar('Train/val_loss',mean_val_loss,epoch)
-        logger.add_scalar('Train/epoch_loss', epoch_loss.mean(), epoch)
-        logger.add_scalar('Train/rl', lr_schedule.get_last_lr()[0], epoch)
+        logger.add_scalar('Train/epoch_loss', epoch_loss, epoch)
+        logger.add_scalar('Train/rl', lr_scheduler.get_last_lr()[0], epoch)
         print("log file saved to {}\n".format(log_path))
