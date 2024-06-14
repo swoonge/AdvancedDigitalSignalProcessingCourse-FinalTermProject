@@ -95,7 +95,8 @@ if __name__ == '__main__':
 
     # set up optimizer and scheduler
     optimizer = optim.Adam([ {'params': encoder.parameters()}, {'params': binarizer.parameters()}, {'params': decoder.parameters()} ], lr=args.lr)
-    lr_scheduler = LS.MultiStepLR(optimizer, milestones=[3, 10, 20, 50, 100], gamma=0.5)
+    lr_scheduler = LS.MultiStepLR(optimizer, milestones=[3, 10, 20, 50, 100, 200, 400, 800], gamma=0.5)
+    # lr_scheduler = LS.MultiStepLR(optimizer, milestones=[5, 20, 50, 100, 200, 400, 600, 800], gamma=0.5)
 
     # if checkpoint is provided, resume from the checkpoint
     last_epoch = 0
