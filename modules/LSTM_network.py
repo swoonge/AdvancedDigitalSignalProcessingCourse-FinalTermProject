@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from .ConvCell import ConvLSTMCell
+from .ConvCell import ConvLSTMCell as RNNCell
 from .sign import Sign
 
 class EncoderCell(nn.Module):
@@ -11,7 +11,8 @@ class EncoderCell(nn.Module):
 
         self.conv = nn.Conv2d(
             3, 64, kernel_size=3, stride=2, padding=1, bias=False)
-        self.rnn1 = ConvLSTMCell(
+
+        self.rnn1 = RNNCell(
             64,
             256,
             kernel_size=3,
@@ -19,7 +20,7 @@ class EncoderCell(nn.Module):
             padding=1,
             hidden_kernel_size=1,
             bias=False)
-        self.rnn2 = ConvLSTMCell(
+        self.rnn2 = RNNCell(
             256,
             512,
             kernel_size=3,
@@ -27,7 +28,7 @@ class EncoderCell(nn.Module):
             padding=1,
             hidden_kernel_size=1,
             bias=False)
-        self.rnn3 = ConvLSTMCell(
+        self.rnn3 = RNNCell(
             512,
             512,
             kernel_size=3,
@@ -37,6 +38,7 @@ class EncoderCell(nn.Module):
             bias=False)
 
     def forward(self, input, hidden1, hidden2, hidden3):
+        
         x = self.conv(input)
 
         hidden1 = self.rnn1(x, hidden1)
@@ -69,7 +71,7 @@ class DecoderCell(nn.Module):
 
         self.conv1 = nn.Conv2d(
             32, 512, kernel_size=1, stride=1, padding=0, bias=False)
-        self.rnn1 = ConvLSTMCell(
+        self.rnn1 = RNNCell(
             512,
             512,
             kernel_size=3,
@@ -77,7 +79,7 @@ class DecoderCell(nn.Module):
             padding=1,
             hidden_kernel_size=1,
             bias=False)
-        self.rnn2 = ConvLSTMCell(
+        self.rnn2 = RNNCell(
             128,
             512,
             kernel_size=3,
@@ -85,7 +87,7 @@ class DecoderCell(nn.Module):
             padding=1,
             hidden_kernel_size=1,
             bias=False)
-        self.rnn3 = ConvLSTMCell(
+        self.rnn3 = RNNCell(
             128,
             256,
             kernel_size=3,
@@ -93,7 +95,7 @@ class DecoderCell(nn.Module):
             padding=1,
             hidden_kernel_size=3,
             bias=False)
-        self.rnn4 = ConvLSTMCell(
+        self.rnn4 = RNNCell(
             64,
             128,
             kernel_size=3,

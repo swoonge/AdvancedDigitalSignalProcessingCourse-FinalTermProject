@@ -1,5 +1,6 @@
 ## train.py
-# python train.py --train /path/to/training/images -N 32 -e 200 --lr 0.0005 -f data/tiny-imagenet-200/test/images
+# conda activate torch222
+# python train.py --train /path/to/training/images -N 32 -e 200 --lr 0.0005 -f data/tiny-imagenet-200/test/images --rnn_model ConvGRUCell
 
 #encoding: utf-8
 import time, os, argparse, sys, random, datetime
@@ -28,6 +29,7 @@ parser.add_argument('--random_seed', type=int, default=0, help='random seed')
 parser.add_argument('--iterations', type=int, default=16, help='unroll iterations')
 parser.add_argument('--checkpoint', type=int, help='checkpoint epoch to resume training')
 parser.add_argument('--loss_method', type=str, default='l1', help='loss method')
+parser.add_argument('--rnn_model', type=str, default='ConvGRUCell', choices=['ConvGRUCell', 'ConvLSTMCell'], help='RNN model')
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -45,11 +47,11 @@ if __name__ == '__main__':
     today = datetime.datetime.now().strftime("%m_%d_%H_%M")
     model_name = 'batch{}-lr{}-{}-{}' .format(args.batch_size, args.lr, args.loss_method, today)
 
-    log_path = Path('./logs/{}/{}'.format(args.dataset, model_name))
+    log_path = Path('./logs/{}-{}/{}'.format(args.dataset, args.rnn_model, model_name))
     log_path.mkdir(exist_ok=True, parents=True)
     logger = SummaryWriter(log_path)
 
-    model_out_path = Path('./checkpoint/{}/{}'.format(args.dataset, model_name))
+    model_out_path = Path('./checkpoint/{}-{}/{}'.format(args.dataset, args.rnn_model, model_name))
     model_out_path.mkdir(exist_ok=True, parents=True)
 
     print("\n", "="*120, "\n ||\tTrain network with | bath size: ", args.batch_size, " | lr: ", args.lr, " | loss method: ", args.loss_method, " | random seed: ", args.random_seed, " | iterations: ", args.iterations,
@@ -81,7 +83,11 @@ if __name__ == '__main__':
     print(' ||\ttotal images: {}; total batches: {}\n'.format(len(train_set), len(train_loader)), "="*120)
 
     ## load networks on GPU
-    from modules import network
+    if args.rnn_model == 'ConvGRUCell':
+        from modules import GRU_network as network
+    else:
+        from modules import LSTM_network as network
+
     if torch.cuda.is_available():
         device = torch.device('cuda')
     elif torch.backends.mps.is_available():
@@ -121,22 +127,33 @@ if __name__ == '__main__':
             ## 이게 한 베치에서 이뤄지는 것. 로스랑 시간 재는거 다시 확인해보기
             batch_t0 = time.time()
             model_t0 = time.time()
-            ## init lstm state
-            encoder_h_1 = (Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)),
-                        Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)))
-            encoder_h_2 = (Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)),
-                        Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)))
-            encoder_h_3 = (Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)),
-                        Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)))
+            if args.rnn_model == 'ConvGRUCell':
+                # init gru state
+                encoder_h_1 = Variable(torch.zeros(data.size(0), 256, 8, 8).to(device))
+                encoder_h_2 = Variable(torch.zeros(data.size(0), 512, 4, 4).to(device))
+                encoder_h_3 = Variable(torch.zeros(data.size(0), 512, 2, 2).to(device))
 
-            decoder_h_1 = (Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)),
-                        Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)))
-            decoder_h_2 = (Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)),
-                        Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)))
-            decoder_h_3 = (Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)),
-                        Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)))
-            decoder_h_4 = (Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)),
-                        Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)))
+                decoder_h_1 = Variable(torch.zeros(data.size(0), 512, 2, 2).to(device))
+                decoder_h_2 = Variable(torch.zeros(data.size(0), 512, 4, 4).to(device))
+                decoder_h_3 = Variable(torch.zeros(data.size(0), 256, 8, 8).to(device))
+                decoder_h_4 = Variable(torch.zeros(data.size(0), 128, 16, 16).to(device))
+            else:
+                ## init lstm state
+                encoder_h_1 = (Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)),
+                               Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)))
+                encoder_h_2 = (Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)),
+                               Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)))
+                encoder_h_3 = (Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)),
+                               Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)))
+
+                decoder_h_1 = (Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)),
+                               Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)))
+                decoder_h_2 = (Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)),
+                               Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)))
+                decoder_h_3 = (Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)),
+                               Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)))
+                decoder_h_4 = (Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)),
+                               Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)))
             model_t1 = time.time()
             model_t += model_t1 - model_t0
 
@@ -146,7 +163,7 @@ if __name__ == '__main__':
             res = patches - 0.5
 
             loss_t0 = time.time()
-            for _ in range(args.iterations):
+            for iter_n in range(args.iterations):
                 encoded, encoder_h_1, encoder_h_2, encoder_h_3 = encoder(
                     res, encoder_h_1, encoder_h_2, encoder_h_3)
 

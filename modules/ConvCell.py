@@ -100,6 +100,7 @@ class ConvLSTMCell(ConvRNNCellBase):
             tuple: (batch_size, hidden_channels, height, width) 모양의 업데이트된 은닉 상태와 셀 상태를 포함하는 튜플.
         """
         hx, cx = hidden
+
         gates = self.conv_ih(input) + self.conv_hh(hx)
 
         ingate, forgetgate, cellgate, outgate = gates.chunk(4, 1)
@@ -138,11 +139,10 @@ class ConvGRUCell(ConvRNNCellBase):
         hidden_padding = _pair(hidden_kernel_size // 2)
 
         #gate_channels = 4 * self.hidden_channels
-        gate_channels = 3 * self.hidden_channels
 
         self.conv_ih = nn.Conv2d(
             in_channels=self.input_channels,
-            out_channels=gate_channels,
+            out_channels= 3 * self.hidden_channels,
             kernel_size=self.kernel_size,
             stride=self.stride,
             padding=self.padding,
@@ -151,31 +151,52 @@ class ConvGRUCell(ConvRNNCellBase):
 
         self.conv_hh = nn.Conv2d(
             in_channels=self.hidden_channels,
-            out_channels=gate_channels,
+            out_channels= 2 * self.hidden_channels,
             kernel_size=hidden_kernel_size,
             stride=1,
             padding=hidden_padding,
             dilation=1,
             bias=bias)
+        
+        ## 문제2
+        # case1: pointwise convolution을 사용하는 경우
+        self.conv_u = nn.Conv2d(
+            in_channels=self.hidden_channels,
+            out_channels=self.hidden_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            dilation=1,
+            bias=bias)
+        # case2: kernel size가 3인 convolution을 사용하는 경우
+        # self.conv_u = nn.Conv2d(
+        #     in_channels=self.hidden_channels,
+        #     out_channels=self.hidden_channels,
+        #     kernel_size=hidden_kernel_size,
+        #     stride=1,
+        #     padding=hidden_padding,
+        #     dilation=1,
+        #     bias=bias)
 
         self.reset_parameters()
 
     def reset_parameters(self):
         self.conv_ih.reset_parameters()
         self.conv_hh.reset_parameters()
+        self.conv_u.reset_parameters()
 
     def forward(self, input, hidden):
         x = input
-        gate_x = self.conv_ih(input) 
+        gate_x = self.conv_ih(input)
         gate_h = self.conv_hh(hidden)
-        
-        i_r, i_i, i_n = gate_x.chunk(3, 1)
-        h_r, h_i, h_n = gate_h.chunk(3, 1)
-        
-        resetgate = F.sigmoid(i_r + h_r)
-        inputgate = F.sigmoid(i_i + h_i)
-        newgate = F.tanh(i_n + (resetgate * h_n))
-        
-        hy = newgate + inputgate * (hidden - newgate)
+
+        x_r, x_i, x_u = gate_x.chunk(3, 1)
+        h_r, h_i = gate_h.chunk(2, 1)
+
+        r_t = F.sigmoid(x_r + h_r)
+        z_t = F.sigmoid(x_i + h_i)
+
+        h_tilde_y = F.tanh(x_u + self.conv_u((r_t * hidden)))
+        hy = (1 - z_t) * hidden + z_t * h_tilde_y
         
         return hy
