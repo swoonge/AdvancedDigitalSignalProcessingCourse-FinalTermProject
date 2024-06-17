@@ -1,6 +1,6 @@
 ## train.py
 # conda activate torch222
-# python train.py --train /path/to/training/images -N 32 -e 200 --lr 0.0005 -f data/tiny-imagenet-200/test/images --rnn_model ConvGRUCell
+# python train.py -N 32 -e 200 --lr 0.0005 --rnn_model ConvGRUCell
 # tensorboard --logdir=runs
 
 #encoding: utf-8
@@ -21,7 +21,8 @@ from torchvision import transforms
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batch-size', '-N', type=int, default=32, help='batch size')
-parser.add_argument('--train', '-f', required=True, type=str, help='folder of training images')
+parser.add_argument('--train', '-f', type=str, default='data/tiny-imagenet-200/train_set', help='folder of training images')
+parser.add_argument('--val', '-vf', type=str, default='data/tiny-imagenet-200/val_set', help='folder of validation images')
 parser.add_argument('--dataset', type=str, default='tiny-imagenet-200', help='dataset')
 parser.add_argument('--max-epochs', '-e', type=int, default=200, help='max epochs')
 parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
@@ -30,6 +31,7 @@ parser.add_argument('--random_seed', type=int, default=0, help='random seed')
 parser.add_argument('--iterations', type=int, default=16, help='unroll iterations')
 parser.add_argument('--checkpoint', type=int, help='checkpoint epoch to resume training')
 parser.add_argument('--loss_method', type=str, default='l1', help='loss method')
+parser.add_argument('--reconstruction_metohod', type=str, default='oneshot', choices=['one_shot', 'additive_reconstruction'],help='reconstruction method')
 parser.add_argument('--rnn_model', type=str, default='ConvGRUCell', choices=['ConvGRUCell', 'ConvLSTMCell'], help='RNN model')
 
 if __name__ == '__main__':
@@ -77,11 +79,15 @@ if __name__ == '__main__':
 
     # 32x32 random crop
     train_transform = transforms.Compose([transforms.RandomCrop((32, 32)), transforms.ToTensor()])
+    val_transform = transforms.Compose([transforms.CenterCrop((32, 32)), transforms.ToTensor()])
 
     # load training set
     train_set = dataset.ImageFolder(root=args.train, transform=train_transform)
     train_loader = data.DataLoader(dataset=train_set, batch_size=args.batch_size, shuffle=True, num_workers=1)
-    print(' ||\ttotal images: {}; total batches: {}\n'.format(len(train_set), len(train_loader)), "="*120)
+    print(' ||\t[train loader] total images: {}; total batches: {}\n'.format(len(train_set), len(train_loader)), "="*120)
+    val_set = dataset.ImageFolder(root=args.val, transform=val_transform)
+    val_loader = data.DataLoader(dataset=val_set, batch_size=args.batch_size, shuffle=False, num_workers=1)
+    print(' ||\t[val loader] total images: {}; total batches: {}\n'.format(len(val_set), len(val_loader)), "="*120)
 
     ## load networks on GPU
     if args.rnn_model == 'ConvGRUCell':
@@ -161,19 +167,24 @@ if __name__ == '__main__':
             patches = Variable(data.to(device))
             optimizer.zero_grad()
             losses = []
-            res = patches - 0.5
+            res = patches - 0.5  # r_0 = x
+            x_org = patches - 0.5
 
             loss_t0 = time.time()
-            for iter_n in range(args.iterations):
+            output = torch.zeros_like(patches) # ^x_{t-1} = 0
+            for iter_n in range(args.iterations): # args.iterations = 16
                 encoded, encoder_h_1, encoder_h_2, encoder_h_3 = encoder(
                     res, encoder_h_1, encoder_h_2, encoder_h_3)
 
                 codes = binarizer(encoded)
 
-                output, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4 = decoder(
-                    codes, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4)
+                if args.reconstruction_metohod == 'additive_reconstruction':
+                    output, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4 = decoder(codes, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4) + output
+                else:
+                    output, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4 = decoder(codes, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4)
 
-                res = res - output
+                ## 문제 3: res = res - output || res = x_org - output
+                res = res - output # output = ^x_{t-1}
                 losses.append(res.abs().mean())
             loss_t1 = time.time()
             loss_t += loss_t1 - loss_t0
