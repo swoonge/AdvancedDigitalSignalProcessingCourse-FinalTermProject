@@ -69,9 +69,19 @@ if __name__ == '__main__':
 
     def save(epoch, best=True):
         s = '_best' if best else ''
-        torch.save(encoder.state_dict(), '{}/encoder{}_{:08d}.pth'.format(model_out_path, s, epoch))
-        torch.save(binarizer.state_dict(), '{}/binarizer{}_{:08d}.pth'.format(model_out_path, s, epoch))
-        torch.save(decoder.state_dict(), '{}/decoder{}_{:08d}.pth'.format(model_out_path, s, epoch))
+        checkpoint = {
+            'encoder': encoder.state_dict(),
+            'binarizer': binarizer.state_dict(),
+            'decoder': decoder.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'lr_schedule': optimizer.state_dict()['param_groups'][0]['lr'],
+            'epoch': epoch,
+            'loss': mean_val_loss
+        }
+        torch.save(checkpoint, '{}/{}_model_epoch_{:04d}.pth'.format(model_out_path, s, epoch))
+        # torch.save(encoder.state_dict(), '{}/encoder{}_{:08d}.pth'.format(model_out_path, s, epoch))
+        # torch.save(binarizer.state_dict(), '{}/binarizer{}_{:08d}.pth'.format(model_out_path, s, epoch))
+        # torch.save(decoder.state_dict(), '{}/decoder{}_{:08d}.pth'.format(model_out_path, s, epoch))
         return
 
     ## load 32x32 patches from images
@@ -108,8 +118,8 @@ if __name__ == '__main__':
 
     # set up optimizer and scheduler
     optimizer = optim.Adam([ {'params': encoder.parameters()}, {'params': binarizer.parameters()}, {'params': decoder.parameters()} ], lr=args.lr)
-    lr_scheduler = LS.MultiStepLR(optimizer, milestones=[3, 10, 20, 50, 100, 200, 400, 800], gamma=0.5)
-    # lr_scheduler = LS.MultiStepLR(optimizer, milestones=[5, 20, 50, 100, 200, 400, 600, 800], gamma=0.5)
+    # lr_scheduler = LS.MultiStepLR(optimizer, milestones=[3, 10, 20, 50, 100, 200, 400, 800], gamma=0.5)
+    lr_scheduler = LS.MultiStepLR(optimizer, milestones=[5, 20, 50, 100, 200, 400, 600, 800], gamma=0.5)
 
     # if checkpoint is provided, resume from the checkpoint
     last_epoch = 0
@@ -124,6 +134,7 @@ if __name__ == '__main__':
     loss_t = 0
     bp_t = 0
 
+    best_loss = 1e9
     epoch_loss = 0
     best_eval_loss = 1e9
     for epoch in range(last_epoch + 1, args.max_epochs + 1):
@@ -199,6 +210,8 @@ if __name__ == '__main__':
             batch_t1 = time.time()
             total_t += batch_t1 - batch_t0
 
+            del patches, res, losses, output, loss
+
         lr_scheduler.step()
         epoch_loss /= len(train_loader)
         model_t /= len(train_set)
@@ -207,41 +220,78 @@ if __name__ == '__main__':
         total_t_per_batch = total_t/len(train_loader)
         print('[TRAIN] Epoch[{}] Loss: {:.6f} | Model inference: {:.5f} sec | Loss: {:.5f} sec | Backpropagation: {:.5f} sec'.format(epoch, epoch_loss, model_t, loss_t, bp_t))
         
-        # evaluate model
-        #
-        #
-        #
-        #
+        # validation
+        val_loss = 0
+        val_total_t0 = time.time()
+        with torch.no_grad():
+            if epoch >= 0 and epoch % 1 == 0:
+                mean_val_loss = []
+                for i, pred in enumerate(val_loader):
+                    ### eval ###
+                    encoder.eval(), binarizer.eval(), decoder.eval()
+                    if args.rnn_model == 'ConvGRUCell':
+                        # init gru state
+                        encoder_h_1 = Variable(torch.zeros(data.size(0), 256, 8, 8).to(device))
+                        encoder_h_2 = Variable(torch.zeros(data.size(0), 512, 4, 4).to(device))
+                        encoder_h_3 = Variable(torch.zeros(data.size(0), 512, 2, 2).to(device))
 
-        # mean_val_loss = torch.mean(torch.stack(mean_val_loss)).item()
-        # epoch_loss /= len(train_loader)
-        # print('Validation loss: {:.4f}, epoch_loss: {:.4f}, best val loss: {:.4f}, lr: {:.10f}' .format(mean_val_loss, mean_train_loss, best_loss, lr_schedule.get_last_lr()[0]))
+                        decoder_h_1 = Variable(torch.zeros(data.size(0), 512, 2, 2).to(device))
+                        decoder_h_2 = Variable(torch.zeros(data.size(0), 512, 4, 4).to(device))
+                        decoder_h_3 = Variable(torch.zeros(data.size(0), 256, 8, 8).to(device))
+                        decoder_h_4 = Variable(torch.zeros(data.size(0), 128, 16, 16).to(device))
+                    else:
+                        ## init lstm state
+                        encoder_h_1 = (Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)),
+                                    Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)))
+                        encoder_h_2 = (Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)),
+                                    Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)))
+                        encoder_h_3 = (Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)),
+                                    Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)))
 
-        # checkpoint = {
-        #         'optimizer':optimizer.state_dict(),
-        #         "epoch": epoch,
-        #         'lr_schedule': optimizer.state_dict()['param_groups'][0]['lr'],
-        #         'loss': mean_val_loss
-        #     }
+                        decoder_h_1 = (Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)),
+                                    Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)))
+                        decoder_h_2 = (Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)),
+                                    Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)))
+                        decoder_h_3 = (Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)),
+                                    Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)))
+                        decoder_h_4 = (Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)),
+                                    Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)))
+                    
+                    patches = Variable(data.to(device))
+                    optimizer.zero_grad()
+                    losses = []
+                    res = patches - 0.5  # r_0 = x
+                    x_org = patches - 0.5
 
-        # if (mean_val_loss <= best_loss + 1e-5): 
-        #     best_loss = mean_val_loss
-        #     model_out_fullpath = "{}/best_model_epoch_{}(val_loss{}).pth".format(model_out_path, epoch, best_loss)
-        #     torch.save(checkpoint, model_out_fullpath)
-        #     print('time consume: {:.1f}s, So far best loss: {:.4f}, Checkpoint saved to {}' .format(timeconsume, best_loss, model_out_fullpath))
-        # else:
-        #     model_out_fullpath = "{}/model_epoch_{}.pth".format(model_out_path, epoch)
-        #     torch.save(checkpoint, model_out_fullpath)
-        #     print("Epoch [{}/{}] done. Epoch Loss {:.4f}. Checkpoint saved to {}"
-        #         .format(epoch, opt.epoch, epoch_loss, model_out_fullpath))
+                    output = torch.zeros_like(patches) # ^x_{t-1} = 0
+                    for iter_n in range(args.iterations): # args.iterations = 16
+                        encoded, encoder_h_1, encoder_h_2, encoder_h_3 = encoder(
+                            res, encoder_h_1, encoder_h_2, encoder_h_3)
+
+                        codes = binarizer(encoded)
+
+                        if args.reconstruction_metohod == 'additive_reconstruction':
+                            output, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4 = decoder(codes, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4) + output
+                        else:
+                            output, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4 = decoder(codes, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4)
+
+                        ## 문제 3: res = res - output || res = x_org - output
+                        res = res - output # output = ^x_{t-1}
+                        losses.append(res.abs().mean())
+                    loss = sum(losses) / args.iterations
+                    mean_val_loss.append[loss.item()]
+                mean_val_loss = np.mean(np.array(mean_val_loss))
+                val_total_t1 = time.time()
+                print('[VAL] Epoch[{}] Loss: {:.6f} | Time: {:.5f} sec'.format(epoch, mean_val_loss, val_total_t1 - val_total_t0))
+                val_loss = mean_val_loss
         
-        # if best_eval_loss > mean_val_loss:
-        #     best_eval_loss = mean_val_loss
-        #     save(epoch, True)
-        # else:
-        #     save(epoch, False)
-        if epoch % 10 == 0:
-            save(epoch, False)
+            if (val_loss <= best_loss + 1e-5): 
+                best_loss = val_loss
+                save(epoch, True)
+                print('[Save] Best model saved at {} epoch'.format(epoch))
+            elif epoch % 10 == 0:
+                save(epoch, False)
+                print('[Save] model saved at {} epoch'.format(epoch))
 
         # ================================================================== #
         #                        Tensorboard Logging                         #
@@ -249,4 +299,5 @@ if __name__ == '__main__':
         # logger.add_scalar('Train/val_loss',mean_val_loss,epoch)
         logger.add_scalar('Train/epoch_loss', epoch_loss, epoch)
         logger.add_scalar('Train/rl', lr_scheduler.get_last_lr()[0], epoch)
+        logger.add_scalar('Train/val_loss', val_loss, epoch)
         print("log file saved to {}\n".format(log_path))
