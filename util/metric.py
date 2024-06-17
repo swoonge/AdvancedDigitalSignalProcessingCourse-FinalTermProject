@@ -16,9 +16,9 @@ from PIL import Image
 parser = argparse.ArgumentParser()
 parser.add_argument('--metric', '-m', type=str, default='all', help='metric')
 parser.add_argument(
-    '--original-image', '-o', type=str, required=True, help='original image')
+    '--original-image', '-o', type=str, required=False, help='original image')
 parser.add_argument(
-    '--compared-image', '-c', type=str, required=True, help='compared image')
+    '--compared-image', '-c', type=str, required=False, help='compared image')
 args = parser.parse_args()
 
 

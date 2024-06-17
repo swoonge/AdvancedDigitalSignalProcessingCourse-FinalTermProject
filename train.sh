@@ -15,5 +15,5 @@
 #sudo python3 decoder.py --model checkpoint/decoder_epoch_00000001.pth --input ex.npz --cuda --output output
 
 python train.py --train /path/to/training/images -N 64 -e 1000 --lr 0.002 -f data/tiny-imagenet-200/test/images --random_seed 0
-python train.py --train /path/to/training/images -N 64 -e 1000 --lr 0.001 -f data/tiny-imagenet-200/test/images --random_seed 0
+python train.py --train /path/to/training/images -N 64 -e 1000 --lr 0.001 -f data/tin       y-imagenet-200/test/images --random_seed 0
 python train.py --train /path/to/training/images -N 64 -e 1000 --lr 0.0005 -f data/tiny-imagenet-200/test/images --random_seed 0

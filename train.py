@@ -62,11 +62,16 @@ if __name__ == '__main__':
 
     def resume(epoch=None, best=True):
         s = '_best' if best else ''
-        encoder.load_state_dict(torch.load('{}/encoder{}_{:08d}.pth'.format(model_out_path, s, epoch)))
-        binarizer.load_state_dict(torch.load('{}/binarizer{}_{:08d}.pth'.format(model_out_path, s, epoch)))
-        decoder.load_state_dict(torch.load('{}/decoder{}_{:08d}.pth'.format(model_out_path, s, epoch)))
+        file_path = '{}/{}_model_epoch_{:04d}.pth'.format(model_out_path, s, epoch)
+        checkpoint = torch.load(file_path)
+        encoder.load_state_dict(checkpoint['encoder'])
+        binarizer.load_state_dict(checkpoint['binarizer'])
+        decoder.load_state_dict(checkpoint['decoder'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        lr_scheduler.load_state_dict(checkpoint['lr_schedule'])
+        epoch = checkpoint['epoch']
         return
-
+    
     def save(epoch, best=True):
         s = '_best' if best else ''
         checkpoint = {
@@ -76,12 +81,9 @@ if __name__ == '__main__':
             'optimizer': optimizer.state_dict(),
             'lr_schedule': optimizer.state_dict()['param_groups'][0]['lr'],
             'epoch': epoch,
-            'loss': mean_val_loss
+            'loss': best_loss
         }
         torch.save(checkpoint, '{}/{}_model_epoch_{:04d}.pth'.format(model_out_path, s, epoch))
-        # torch.save(encoder.state_dict(), '{}/encoder{}_{:08d}.pth'.format(model_out_path, s, epoch))
-        # torch.save(binarizer.state_dict(), '{}/binarizer{}_{:08d}.pth'.format(model_out_path, s, epoch))
-        # torch.save(decoder.state_dict(), '{}/decoder{}_{:08d}.pth'.format(model_out_path, s, epoch))
         return
 
     ## load 32x32 patches from images
@@ -225,7 +227,7 @@ if __name__ == '__main__':
         val_total_t0 = time.time()
         with torch.no_grad():
             if epoch >= 0 and epoch % 1 == 0:
-                mean_val_loss = []
+                val_losses = []
                 for i, pred in enumerate(val_loader):
                     ### eval ###
                     encoder.eval(), binarizer.eval(), decoder.eval()
@@ -258,7 +260,6 @@ if __name__ == '__main__':
                                     Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)))
                     
                     patches = Variable(data.to(device))
-                    optimizer.zero_grad()
                     losses = []
                     res = patches - 0.5  # r_0 = x
                     x_org = patches - 0.5
@@ -278,12 +279,10 @@ if __name__ == '__main__':
                         ## 문제 3: res = res - output || res = x_org - output
                         res = res - output # output = ^x_{t-1}
                         losses.append(res.abs().mean())
-                    loss = sum(losses) / args.iterations
-                    mean_val_loss.append[loss.item()]
-                mean_val_loss = np.mean(np.array(mean_val_loss))
+                    val_losses.append(torch.mean(torch.stack(losses)))
+                val_loss = torch.mean(torch.stack(val_losses))
                 val_total_t1 = time.time()
-                print('[VAL] Epoch[{}] Loss: {:.6f} | Time: {:.5f} sec'.format(epoch, mean_val_loss, val_total_t1 - val_total_t0))
-                val_loss = mean_val_loss
+                print('[Val] Epoch[{}] Loss: {:.6f} | Time: {:.5f} sec'.format(epoch, val_loss, val_total_t1 - val_total_t0))
         
             if (val_loss <= best_loss + 1e-5): 
                 best_loss = val_loss
@@ -301,3 +300,5 @@ if __name__ == '__main__':
         logger.add_scalar('Train/rl', lr_scheduler.get_last_lr()[0], epoch)
         logger.add_scalar('Train/val_loss', val_loss, epoch)
         print("log file saved to {}\n".format(log_path))
+        
+         
