@@ -1,6 +1,7 @@
 ## train.py
 # conda activate torch222
 # python train.py --train /path/to/training/images -N 32 -e 200 --lr 0.0005 -f data/tiny-imagenet-200/test/images --rnn_model ConvGRUCell
+# tensorboard --logdir=runs
 
 #encoding: utf-8
 import time, os, argparse, sys, random, datetime
