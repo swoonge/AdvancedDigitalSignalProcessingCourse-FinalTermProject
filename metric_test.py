@@ -20,7 +20,7 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('--test', '-vf', type=str, default='data/tiny-imagenet-200/test_set', help='folder of test images')
 parser.add_argument('--iter', '-i', type=int, default=16, help='unroll iterations')
-parser.add_argument('--model_path', type=str, default='checkpoint/tiny-imagenet-200-ConvGRUCell/batch32-lr0.0005-l1-06_17_18_02/_best_model_epoch_0027.pth', help='path to model')
+parser.add_argument('--model_path', type=str, default='checkpoint/tiny-imagenet-200-ConvGRUCell/batch32-lr0.0005-l1-06_17_18_02/_best_model_epoch_0188.pth', help='path to model')
 parser.add_argument('--metric_method', type=str, default='MS_SSIM', choices=['MS_SSIM'], help='loss method')
 parser.add_argument('--reconstruction_metohod', type=str, default='oneshot', choices=['one_shot', 'additive_reconstruction'],help='reconstruction method')
 parser.add_argument('--rnn_model', type=str, default='ConvGRUCell', choices=['ConvGRUCell', 'ConvLSTMCell'], help='RNN model')

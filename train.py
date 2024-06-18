@@ -25,8 +25,8 @@ parser.add_argument('--train', '-f', type=str, default='data/tiny-imagenet-200/t
 parser.add_argument('--val', '-vf', type=str, default='data/tiny-imagenet-200/val_set', help='folder of validation images')
 parser.add_argument('--dataset', type=str, default='tiny-imagenet-200', help='dataset')
 parser.add_argument('--max-epochs', '-e', type=int, default=200, help='max epochs')
-parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
-parser.add_argument('--random_seed', type=int, default=0, help='random seed')
+parser.add_argument('--lr', type=float, default=0.005, help='learning rate')
+parser.add_argument('--random_seed', type=int, default=1, help='random seed')
 # parser.add_argument('--cudas', '-g', action='store_true', help='enables cuda')
 parser.add_argument('--iterations', type=int, default=16, help='unroll iterations')
 parser.add_argument('--checkpoint', type=int, help='checkpoint epoch to resume training')
@@ -120,8 +120,8 @@ if __name__ == '__main__':
 
     # set up optimizer and scheduler
     optimizer = optim.Adam([ {'params': encoder.parameters()}, {'params': binarizer.parameters()}, {'params': decoder.parameters()} ], lr=args.lr)
-    # lr_scheduler = LS.MultiStepLR(optimizer, milestones=[3, 10, 20, 50, 100, 200, 400, 800], gamma=0.5)
-    lr_scheduler = LS.MultiStepLR(optimizer, milestones=[5, 20, 50, 100, 200, 400, 600, 800], gamma=0.5)
+    lr_scheduler = LS.MultiStepLR(optimizer, milestones=[10, 30, 50, 100, 200, 300, 500, 700], gamma=0.5)
+    # lr_scheduler = LS.MultiStepLR(optimizer, milestones=[5, 20, 50, 100, 200, 400, 600, 800], gamma=0.5)
 
     # if checkpoint is provided, resume from the checkpoint
     last_epoch = 0
