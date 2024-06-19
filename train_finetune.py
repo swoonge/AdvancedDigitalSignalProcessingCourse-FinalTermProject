@@ -31,8 +31,7 @@ parser.add_argument('--lr', type=float, default=0.005, help='learning rate')
 parser.add_argument('--random_seed', type=int, default=1, help='random seed')
 # parser.add_argument('--cudas', '-g', action='store_true', help='enables cuda')
 parser.add_argument('--iterations', type=int, default=16, help='unroll iterations')
-parser.add_argument('--checkpoint', type=int, help='checkpoint epoch to resume training')
-parser.add_argument('--model_path', '-m', type=str, default='checkpoint/tiny-imagenet-200-ConvGRUCell/batch32-lr0.0005-l1-06_18_13_46/_best_model_epoch_0192.pth', help='path to model)')
+parser.add_argument('--resume_model_path', '-r', type=str, default='checkpoint/tiny-imagenet-200-ConvGRUCell/batch32-lr0.0005-l1-06_18_13_46/_best_model_epoch_0192.pth', help='resume from the checkpoint')
 parser.add_argument('--loss_method', type=str, default='l1', help='loss method')
 parser.add_argument('--reconstruction_metohod', type=str, default='oneshot', choices=['one_shot', 'additive_reconstruction'],help='reconstruction method')
 parser.add_argument('--rnn_model', type=str, default='ConvGRUCell', choices=['ConvGRUCell', 'ConvLSTMCell'], help='RNN model')
@@ -50,33 +49,17 @@ if __name__ == '__main__':
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
 
-    # set up logger
+    #### set up logger ####
     today = datetime.datetime.now().strftime("%m_%d_%H_%M")
-    model_name = 'batch{}-lr{}-{}-{}' .format(args.batch_size, args.lr, args.loss_method, today)
-
+    model_name = 'finetuned_batch{}-lr{}-l1-{}-{}' .format(args.batch_size, args.lr, args.loss_method, today)
     log_path = Path('./logs/{}-{}/{}'.format(args.dataset, args.rnn_model, model_name))
-    log_path.mkdir(exist_ok=True, parents=True)
-    logger = SummaryWriter(log_path)
-
     model_out_path = Path('./checkpoint/{}-{}/{}'.format(args.dataset, args.rnn_model, model_name))
-    model_out_path.mkdir(exist_ok=True, parents=True)
-
     print("\n", "="*120, "\n ||\tTrain network with | bath size: ", args.batch_size, " | lr: ", args.lr, " | loss method: ", args.loss_method, " | random seed: ", args.random_seed, " | iterations: ", args.iterations,
     "\n ||\tmodel_out_path: ", model_out_path, "\n ||\tlog_path: ",log_path, "\n", "="*120, )
+    ########################
 
-    def resume(epoch=None, best=True):
-        s = '_best' if best else ''
-        file_path = '{}/{}_model_epoch_{:04d}.pth'.format(model_out_path, s, epoch)
-        checkpoint = torch.load(args.model_path)
-        encoder.load_state_dict(checkpoint['encoder'])
-        binarizer.load_state_dict(checkpoint['binarizer'])
-        decoder.load_state_dict(checkpoint['decoder'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
-        lr_scheduler.load_state_dict(checkpoint['lr_schedule'])
-        epoch = checkpoint['epoch']
-        return
-    
     def save(epoch, best=True):
+        model_out_path.mkdir(exist_ok=True, parents=True)
         s = '_best' if best else ''
         checkpoint = {
             'encoder': encoder.state_dict(),
@@ -90,6 +73,7 @@ if __name__ == '__main__':
         torch.save(checkpoint, '{}/{}_model_epoch_{:04d}.pth'.format(model_out_path, s, epoch))
         return
 
+    ##### load dataset #####
     ## load 32x32 patches from images
     import dataset
 
@@ -104,6 +88,7 @@ if __name__ == '__main__':
     val_set = dataset.ImageFolder(root=args.val, transform=val_transform)
     val_loader = data.DataLoader(dataset=val_set, batch_size=args.batch_size, shuffle=False, num_workers=1)
     print(' ||\t[val loader] total images: {}; total batches: {}\n'.format(len(val_set), len(val_loader)), "="*120)
+    ########################
 
     ## load networks on GPU
     if args.rnn_model == 'ConvGRUCell':
@@ -122,18 +107,21 @@ if __name__ == '__main__':
     binarizer = network.Binarizer().to(device)
     decoder = network.DecoderCell().to(device)
 
-    # set up optimizer and scheduler
-    optimizer = optim.Adam([ {'params': encoder.parameters()}, {'params': binarizer.parameters()}, {'params': decoder.parameters()} ], lr=args.lr)
-    lr_scheduler = LS.MultiStepLR(optimizer, milestones=[20, 25, 30, 40, 50, 70, 100, 150, 200, 300, 400, 500, 700], gamma=0.5)
-    # lr_scheduler = LS.MultiStepLR(optimizer, milestones=[10, 30, 50, 100, 200, 300, 500, 700], gamma=0.5)
-    # lr_scheduler = LS.MultiStepLR(optimizer, milestones=[5, 20, 50, 100, 200, 400, 600, 800], gamma=0.5)
-
     # if checkpoint is provided, resume from the checkpoint
     last_epoch = 0
-    if args.checkpoint:
-        resume(args.checkpoint)
-        last_epoch = args.checkpoint
-        lr_scheduler.last_epoch = last_epoch - 1
+    checkpoint = torch.load('checkpoint/tiny-imagenet-200-ConvGRUCell/batch32-lr0.0005-l1-06_18_13_46/_best_model_epoch_0192.pth')
+    encoder.load_state_dict(checkpoint['encoder'])
+    binarizer.load_state_dict(checkpoint['binarizer'])
+    decoder.load_state_dict(checkpoint['decoder'])
+    last_epoch = checkpoint['epoch']
+    print('load resume model from {}, epoch {}'.format(args.resume_model_path, last_epoch))
+
+    # set up optimizer and scheduler
+    optimizer = optim.Adam([ {'params': encoder.parameters()}, {'params': binarizer.parameters()}, {'params': decoder.parameters()} ], lr=args.lr)
+    lr_scheduler = LS.StepLR(optimizer, step_size=20, gamma=0.7)
+    # lr_scheduler = LS.MultiStepLR(optimizer, milestones=[20, 25, 30, 40, 50, 70, 100, 150, 200, 300, 400, 500, 700], gamma=0.5)
+    # lr_scheduler = LS.MultiStepLR(optimizer, milestones=[10, 30, 50, 100, 200, 300, 500, 700], gamma=0.5)
+    # lr_scheduler = LS.MultiStepLR(optimizer, milestones=[5, 20, 50, 100, 200, 400, 600, 800], gamma=0.5)
 
     ## training
     total_t = 0
@@ -152,53 +140,34 @@ if __name__ == '__main__':
             ## 이게 한 베치에서 이뤄지는 것. 로스랑 시간 재는거 다시 확인해보기
             batch_t0 = time.time()
             model_t0 = time.time()
-            if args.rnn_model == 'ConvGRUCell':
-                # init gru state
-                encoder_h_1 = Variable(torch.zeros(data.size(0), 256, 8, 8).to(device))
-                encoder_h_2 = Variable(torch.zeros(data.size(0), 512, 4, 4).to(device))
-                encoder_h_3 = Variable(torch.zeros(data.size(0), 512, 2, 2).to(device))
 
-                decoder_h_1 = Variable(torch.zeros(data.size(0), 512, 2, 2).to(device))
-                decoder_h_2 = Variable(torch.zeros(data.size(0), 512, 4, 4).to(device))
-                decoder_h_3 = Variable(torch.zeros(data.size(0), 256, 8, 8).to(device))
-                decoder_h_4 = Variable(torch.zeros(data.size(0), 128, 16, 16).to(device))
-            else:
-                ## init lstm state
-                encoder_h_1 = (Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)),
-                               Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)))
-                encoder_h_2 = (Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)),
-                               Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)))
-                encoder_h_3 = (Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)),
-                               Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)))
+            encoder_h_1 = torch.zeros(data.size(0), 256, 8, 8).to(device)
+            encoder_h_2 = torch.zeros(data.size(0), 512, 4, 4).to(device)
+            encoder_h_3 = torch.zeros(data.size(0), 512, 2, 2).to(device)
 
-                decoder_h_1 = (Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)),
-                               Variable(torch.zeros(data.size(0), 512, 2, 2).to(device)))
-                decoder_h_2 = (Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)),
-                               Variable(torch.zeros(data.size(0), 512, 4, 4).to(device)))
-                decoder_h_3 = (Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)),
-                               Variable(torch.zeros(data.size(0), 256, 8, 8).to(device)))
-                decoder_h_4 = (Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)),
-                               Variable(torch.zeros(data.size(0), 128, 16, 16).to(device)))
+            decoder_h_1 = torch.zeros(data.size(0), 512, 2, 2).to(device)
+            decoder_h_2 = torch.zeros(data.size(0), 512, 4, 4).to(device)
+            decoder_h_3 = torch.zeros(data.size(0), 256, 8, 8).to(device)
+            decoder_h_4 = torch.zeros(data.size(0), 128, 16, 16).to(device)
+
             model_t1 = time.time()
             model_t += model_t1 - model_t0
 
-            patches = Variable(data.to(device))
+            patches = data.to(device)
             optimizer.zero_grad()
             losses = []
             res = patches - 0.5  # r_0 = x
-            x_org = patches - 0.5
+            x_org = patches
 
             loss_t0 = time.time()
             output = torch.zeros_like(patches) # ^x_{t-1} = 0
-            org_image = data
+
+            org_image = patches
             decoded_images = torch.zeros_like(patches) + 0.5
-            decoded_images_list = []
+
             for iter_n in range(args.iterations): # args.iterations = 16
-                encoded, encoder_h_1, encoder_h_2, encoder_h_3 = encoder(
-                    res, encoder_h_1, encoder_h_2, encoder_h_3)
-
+                encoded, encoder_h_1, encoder_h_2, encoder_h_3 = encoder(res, encoder_h_1, encoder_h_2, encoder_h_3)
                 codes = binarizer(encoded)
-
                 if args.reconstruction_metohod == 'additive_reconstruction':
                     output, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4 = decoder(codes, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4) + output
                 else:
@@ -209,6 +178,7 @@ if __name__ == '__main__':
                     res = res - output
                 else:
                     res = x_org - output # output = ^x_{t-1}
+                
                 # l1 loss의 경우, 각 iteration마다 loss의 평균을 계산하고, 이를 모두 더한 후 iteration 수로 나누어 평균을 구함
                 # 이 때, loss 값 -> 
                 if args.loss_method == 'l1':
@@ -223,6 +193,9 @@ if __name__ == '__main__':
             loss_t += loss_t1 - loss_t0
             loss = sum(losses) / args.iterations
             epoch_loss += loss.item()
+            # ssim_score = ssim(decoded_images, x_org, data_range=1.0, size_average=True)
+            print( f'[TRAIN] Epoch[{epoch}] Batch[{batch}] Loss: {loss.item()}')
+            # print( f'[TRAIN] Epoch[{epoch}] Batch[{batch}] Iteration[{iter_n}] Loss: {loss.item()}, ssim_score: {ssim_score}')
 
             bp_t0 = time.time()
             loss.backward()
@@ -232,7 +205,7 @@ if __name__ == '__main__':
             batch_t1 = time.time()
             total_t += batch_t1 - batch_t0
 
-            del patches, res, losses, output, loss
+            # del patches, res, losses, output, loss
 
         lr_scheduler.step()
         epoch_loss /= len(train_loader)
@@ -323,6 +296,8 @@ if __name__ == '__main__':
         # ================================================================== #
         #                        Tensorboard Logging                         #
         # ================================================================== #
+        log_path.mkdir(exist_ok=True, parents=True)
+        logger = SummaryWriter(log_path)
         # logger.add_scalar('Train/val_loss',mean_val_loss,epoch)
         logger.add_scalar('Train/epoch_loss', epoch_loss, epoch)
         logger.add_scalar('Train/rl', lr_scheduler.get_last_lr()[0], epoch)

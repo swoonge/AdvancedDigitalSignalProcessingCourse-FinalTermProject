@@ -26,7 +26,7 @@ from torchvision import transforms
 parser = argparse.ArgumentParser()
 parser.add_argument('--png_folder', '-f', type=str, default='data/kodim/png', help='folder of test images')
 parser.add_argument('--output_folder', '-o', type=str, default='data/kodim/rnn', help='output codes')
-parser.add_argument('--model_path', '-m', type=str, default='checkpoint/tiny-imagenet-200-ConvGRUCell/batch32-lr0.0005-l1-06_17_18_02/_best_model_epoch_0188.pth', help='path to model')
+parser.add_argument('--model_path', '-m', type=str, default='checkpoint/tiny-imagenet-200-ConvGRUCell/batch32-lr0.0005-l1-06_18_13_46/_best_model_epoch_0192.pth', help='path to model')
 parser.add_argument('--reconstruction_metohod', type=str, default='oneshot', choices=['one_shot', 'additive_reconstruction'],help='reconstruction method')
 parser.add_argument('--rnn_model', type=str, default='ConvGRUCell', choices=['ConvGRUCell', 'ConvLSTMCell'], help='RNN model')
 
