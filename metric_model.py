@@ -29,7 +29,7 @@ parser.add_argument('--output_folder', '-o', type=str, default='data/kodim/rnn',
 parser.add_argument('--model_path', '-m', type=str, default='checkpoint/tiny-imagenet-200-ConvGRUCell/batch32-lr0.0005-mix_iter-07_02_14_39/_best_model_epoch_0003.pth', help='path to model')
 parser.add_argument('--reconstruction_metohod', type=str, default='oneshot', choices=['one_shot', 'additive_reconstruction'],help='reconstruction method')
 parser.add_argument('--rnn_model', type=str, default='ConvGRUCell', choices=['ConvGRUCell', 'ConvLSTMCell'], help='RNN model')
-parser.add_argument('--excel_path', type=str, default='data/kodim/rnn_metric.xlsx', help='path to save metric')
+parser.add_argument('--excel_path', type=str, default='data/kodim/results_rnn_metric.xlsx', help='path to save metric')
 
 if __name__ == '__main__':
     args = parser.parse_args()

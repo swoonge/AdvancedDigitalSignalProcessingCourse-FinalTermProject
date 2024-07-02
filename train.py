@@ -30,7 +30,7 @@ parser.add_argument('--max-epochs', '-e', type=int, default=200, help='max epoch
 parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
 parser.add_argument('--gamma', type=float, default=0.84, help='weight of l1 loss')
 parser.add_argument('--l1_gaussian',type=bool, default=True, help='use gaussian kernel for l1 loss')
-parser.add_argument('--random_seed', type=int, default=1, help='random seed')
+parser.add_argument('--random_seed', type=int, default=0, help='random seed')
 parser.add_argument('--iterations', type=int, default=16, help='unroll iterations')
 parser.add_argument('--model_path', '-m', type=str, default='', help='path to model)')
 parser.add_argument('--loss_method', type=str, default='mix_iter', help='loss method')
