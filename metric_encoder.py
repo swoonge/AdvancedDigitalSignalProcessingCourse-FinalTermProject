@@ -26,9 +26,10 @@ from torchvision import transforms
 parser = argparse.ArgumentParser()
 parser.add_argument('--png_folder', '-f', type=str, default='data/kodim/png', help='folder of test images')
 parser.add_argument('--output_folder', '-o', type=str, default='data/kodim/rnn', help='output codes')
-parser.add_argument('--model_path', '-m', type=str, default='checkpoint/tiny-imagenet-200-ConvGRUCell/batch32-lr0.0005-l1-06_18_13_46/_best_model_epoch_0192.pth', help='path to model')
+parser.add_argument('--model_path', '-m', type=str, default='checkpoint/tiny-imagenet-200-ConvGRUCell/batch32-lr0.0005-mix_iter-07_02_14_39/_best_model_epoch_0003.pth', help='path to model')
 parser.add_argument('--reconstruction_metohod', type=str, default='oneshot', choices=['one_shot', 'additive_reconstruction'],help='reconstruction method')
 parser.add_argument('--rnn_model', type=str, default='ConvGRUCell', choices=['ConvGRUCell', 'ConvLSTMCell'], help='RNN model')
+parser.add_argument('--excel_path', type=str, default='data/kodim/rnn_metric.xlsx', help='path to save metric')
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -72,6 +73,8 @@ if __name__ == '__main__':
     binarizer.load_state_dict(checkpoint['binarizer'])
     decoder.load_state_dict(checkpoint['decoder'])
 
+
+    print("[INFO] Start encoding...")
     with torch.no_grad():
         for img_num, image in enumerate(png_images):
             batch_size, input_channels, height, width = image.size()
@@ -114,5 +117,123 @@ if __name__ == '__main__':
                 file_name = f"kodim{img_num+1:02}_iter{iters:02}.npz"
                 path = os.path.join(args.output_folder, file_name)
                 np.savez_compressed(path, shape=code_chach.shape, codes=export)
-                print('[{}/{}] Saved: {}'.format(img_num+1, len(png_images), path))
+                print('\t[{}/{}] Saved: {}'.format(img_num+1, len(png_images), path))
                 del code_chach, export, file_name
+
+    print("[INFO] Encoding done. Decoding start...")
+
+    png_folder = 'data/kodim/png'
+    rnn_folder = 'data/kodim/rnn'
+
+    png_images_path = os.listdir(png_folder)
+    png_images_path.sort()
+
+    rnn_images_path = os.listdir(rnn_folder)
+    rnn_images_path.sort()
+
+    iters = range(1, 33)
+    results_dict = {sampling: [] for sampling in iters}
+    codes_dict = {}
+    decoded_images_dict = {}
+
+    # image 및 codes 로드
+    png_images = {}
+    for file_name in png_images_path:
+        if file_name.lower().endswith('.png'):
+            png_path = os.path.join(png_folder, file_name)
+            codes_dict[file_name.split('.')[0]] = []
+            decoded_images_dict[file_name.split('.')[0]] = []
+            with Image.open(png_path) as img:
+                png_images[file_name.split('.')[0]] = np.array(img).transpose(2, 0, 1)
+
+    for file_name in rnn_images_path:
+        if file_name.lower().endswith('.npz'):
+            npz_path = os.path.join(rnn_folder, file_name)
+            with np.load(npz_path) as data:
+                codes_dict[file_name.split('_')[0]].append([data['shape'], data['codes']])
+                # print(npz_path, data['shape'], data['codes'].shape) # >> 32*32*48 / 6144 = 8 -> 즉 code는 8비트, 32, 32이니 실제로는 4, 4패치
+
+    # 이미지 디코딩
+    for k in codes_dict.keys(): # k = 'kodim01' 등의 키
+        content = codes_dict[k] # 각 이미지에 대한 content, content[0~32]는 각각 iter, content[i][0~1]은 각각 shape, codes
+        print("\t[decode process] image: ", k)
+        # for i in range(len(content)): # i = 1~32의 각 iter
+        codes = np.unpackbits(content[-1][1])
+        codes = np.reshape(codes, content[-1][0]).astype(np.float32) * 2 - 1
+
+        codes = torch.from_numpy(codes)
+        iters, batch_size, channels, height, width = codes.size()
+        height = height * 16
+        width = width * 16
+
+        with torch.no_grad():
+            if args.rnn_model == 'ConvGRUCell':
+                # init gru state
+                decoder_h_1 = (torch.zeros(batch_size, 512, height // 16, width // 16)).to(device)
+                decoder_h_2 = (torch.zeros(batch_size, 512, height // 8, width // 8)).to(device)
+                decoder_h_3 = (torch.zeros(batch_size, 256, height // 4, width // 4)).to(device)
+                decoder_h_4 = (torch.zeros(batch_size, 128, height // 2, width // 2)).to(device)
+            else:
+                ## init lstm state
+                decoder_h_1 = (torch.zeros(batch_size, 512, height // 16, width // 16), torch.zeros(batch_size, 512, height // 16, width // 16)).to(device)
+                decoder_h_2 = (torch.zeros(batch_size, 512, height // 8, width // 8), torch.zeros(batch_size, 512, height // 8, width // 8)).to(device)
+                decoder_h_3 = (torch.zeros(batch_size, 256, height // 4, width // 4), torch.zeros(batch_size, 256, height // 4, width // 4)).to(device)
+                decoder_h_4 = (torch.zeros(batch_size, 128, height // 2, width // 2), torch.zeros(batch_size, 128, height // 2, width // 2)).to(device)
+
+            codes = codes.to(device)
+            image = torch.zeros(1, 3, height, width) + 0.5
+
+            for iters in range(iters):
+                output, decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4 = decoder(
+                    codes[iters], decoder_h_1, decoder_h_2, decoder_h_3, decoder_h_4)
+                image = image + output.data.cpu()
+                image_disp = np.squeeze(image[0].numpy().clip(0, 1) * 255.0).astype(np.uint8).transpose(1, 2, 0)
+                decoded_images_dict[k].append([k, iters+1, image_disp])
+    
+    results_dict = {}
+    for i in range(1, 33):
+        results_dict[i] = []
+
+    print("[INFO] Calculate metric...")
+
+    for k in png_images.keys():
+        org_image = np.expand_dims(png_images[k], axis=0)
+        print("[calculate metric] image: ", k)
+        for i in range(len(decoded_images_dict[k])):
+            decoded_images = decoded_images_dict[k][i][2].transpose(2, 0, 1)
+            decoded_images = np.expand_dims(decoded_images, axis=0)
+            
+            ms_ssim_score_1 = MultiScaleSSIM(org_image, decoded_images, max_val=255)
+            ms_ssim_score_2 = ms_ssim(torch.tensor(org_image).float(), torch.tensor(decoded_images).float(), data_range=255, size_average=True).item()
+            ssim_score = ssim(torch.tensor(org_image).float(), torch.tensor(decoded_images).float(), data_range=255, size_average=True).item()
+            psnr_score = psnr(org_image, decoded_images)
+
+            path = os.path.join(rnn_folder, f"{k}_iter{i+1:02}.npz")
+            rnn_size = os.path.getsize(path) * 8
+            bpp = rnn_size / (decoded_images.shape[2] * decoded_images.shape[3])
+
+            results_dict[i+1].append([i, bpp, ssim_score, ms_ssim_score_1, ms_ssim_score_2, psnr_score])
+            print(f"\titer: {i+1:02} | bpp: {bpp:.4f} | SSIM: {ssim_score:.4f} | MS-SSIM1: {ms_ssim_score_1:.4f} | MS-SSIM2: {ms_ssim_score_2:.4f} |PSNR: {psnr_score:.4f}")
+
+    results = []
+    for datas in results_dict.values():
+        data = [datas[0][0]]
+
+        bpp_values = [r[1] for r in datas]
+        ssim_scores = [r[2] for r in datas]
+        ms_ssim_scores1 = [r[3] for r in datas]
+        ms_ssim_scores2 = [r[4] for r in datas]
+        psnr_scores = [r[5] for r in datas]
+        
+        data.append(sum(bpp_values) / len(bpp_values))
+        data.append(sum(ssim_scores) / len(ssim_scores))
+        data.append(sum(ms_ssim_scores1) / len(ms_ssim_scores1))
+        data.append(sum(ms_ssim_scores2) / len(ms_ssim_scores2))
+        data.append(sum(psnr_scores) / len(psnr_scores))
+
+        results.append(data)
+
+    # DataFrame 생성
+    df = pd.DataFrame(results, columns=['iter', 'bpp', 'SSIM', 'MS-SSIM1', 'MS-SSIM2', 'PSNR'])
+
+    df.to_excel(args.excel_path, index=False)
